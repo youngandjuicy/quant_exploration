@@ -224,6 +224,36 @@ def main():
         print("\nST 状态分布：")
         print(df_check["isST"].value_counts(dropna=False))
 
+        # 按股票和日期排序
+        df_factor = df_clean.sort_values(
+            ["code", "date"]
+        ).copy()
+
+        # 计算20个交易间隔之前的收盘价
+        df_factor["close_lag20"] = (
+            df_factor.groupby("code")["close"]
+            .shift(20)
+        )
+
+        # 计算20日动量
+        df_factor["mom20"] = (
+            df_factor["close"] / df_factor["close_lag20"] - 1
+        )
+
+        # 查看结果
+        print("\n20日动量：")
+        print(
+            df_factor[
+                ["date", "code", "close", "close_lag20", "mom20"]
+            ].groupby("code").head(25)
+        )
+
+        # 检查有效因子数量
+        print("\n各股票有效动量数量：")
+        print(
+            df_factor.groupby("code")["mom20"].count()
+        )
+
 
 
     finally:
