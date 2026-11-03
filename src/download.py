@@ -183,6 +183,48 @@ def main():
 
         print(f"\n清洗后的数据已保存：{processed_path}")
 
+        # 按股票和日期排序
+        df_check = df_clean.sort_values(
+            ["code", "date"]
+        ).copy()
+
+        # 计算每只股票自己的收盘价日收益率
+        df_check["return"] = (
+            df_check.groupby("code")["close"]
+            .pct_change(fill_method=None)
+        )
+
+        # 转换成百分比，方便与 pctChg 比较
+        df_check["return_pct"] = df_check["return"] * 100
+
+        # 计算两者的差异
+        df_check["diff"] = (
+            df_check["return_pct"] - df_check["pctChg"]
+        )
+
+        # 查看每只股票的前几条记录
+        print("\n收益率对比：")
+        print(
+            df_check.groupby("code")[
+                ["date", "close", "return_pct", "pctChg", "diff"]
+            ].head(5)
+        )
+
+        # 统计差异
+        valid_diff = df_check["diff"].dropna()
+
+        print("\n收益率差异统计：")
+        print("最大绝对误差：", valid_diff.abs().max())
+        print("平均绝对误差：", valid_diff.abs().mean())
+
+        # 检查交易状态
+        print("\n交易状态分布：")
+        print(df_check["tradestatus"].value_counts(dropna=False))
+
+        print("\nST 状态分布：")
+        print(df_check["isST"].value_counts(dropna=False))
+
+
 
     finally:
         # 即使下载过程中发生异常，也尝试退出
