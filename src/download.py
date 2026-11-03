@@ -104,26 +104,85 @@ def main():
 
         print(f"\n重复的日期-股票组合数：{duplicate_count}")
 
-        # 保存到项目目录下的 data/raw
-        output_path = (
+                
+        # 1. 保存原始接口数据，不修改原始 df
+        raw_path = (
             Path(__file__).resolve().parents[1]
             / "data"
             / "raw"
             / "sample_daily.csv"
         )
-
-        output_path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
 
         df.to_csv(
-            output_path,
+            raw_path,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"原始数据已保存：{raw_path}")
+
+
+        # 2. 创建清洗副本
+        df_clean = df.copy()
+
+        # 需要转换为数值的列
+        numeric_cols = [
+            "open", "high", "low", "close", "preclose",
+            "volume", "amount", "adjustflag", "turn",
+            "tradestatus", "pctChg", "isST",
+        ]
+
+        for col in numeric_cols:
+            df_clean[col] = pd.to_numeric(
+                df_clean[col],
+                errors="coerce",
+            )
+
+        # 日期字符串转换为日期类型
+        df_clean["date"] = pd.to_datetime(
+            df_clean["date"],
+            errors="coerce",
+        )
+
+
+        # 3. 检查清洗结果
+        print("\n清洗后的前 5 行：")
+        print(df_clean.head())
+
+        print("\n清洗后的数据类型：")
+        print(df_clean.dtypes)
+
+        print("\n数据规模：")
+        print(df_clean.shape)
+
+        print("\n各列缺失值数量：")
+        print(df_clean.isna().sum())
+
+        print("\n日期范围：")
+        print(df_clean["date"].min())
+        print(df_clean["date"].max())
+
+        print("\n每只股票的记录数：")
+        print(df_clean.groupby("code").size())
+
+
+        # 4. 保存清洗后的数据
+        processed_path = (
+            Path(__file__).resolve().parents[1]
+            / "data"
+            / "processed"
+            / "sample_daily.csv"
+        )
+        processed_path.parent.mkdir(parents=True, exist_ok=True)
+
+        df_clean.to_csv(
+            processed_path,
             index=False,
             encoding="utf-8-sig",
         )
 
-        print(f"\n文件已保存至：{output_path}")
+        print(f"\n清洗后的数据已保存：{processed_path}")
+
 
     finally:
         # 即使下载过程中发生异常，也尝试退出
