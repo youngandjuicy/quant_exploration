@@ -303,6 +303,62 @@ def main():
         print("\n有效研究样本数量：")
         print(valid_samples.groupby("code").size())
 
+        # 1. 筛选同时具有因子和未来收益的样本
+        valid = df_factor.dropna(
+            subset=["mom20", "future_return_5d"]
+        ).copy()
+
+
+        # 2. 按交易日计算 Rank IC
+        records = []
+
+        for date, group in valid.groupby("date"):
+            ic = group["mom20"].corr(
+                group["future_return_5d"],
+                method="spearman",
+            )
+
+            records.append({
+                "date": date,
+                "rank_ic": ic,
+                "n_stocks": len(group),
+            })
+
+        daily_ic = pd.DataFrame(records)
+
+
+        # 3. 查看每日 Rank IC
+        print("\n每日 Rank IC：")
+        print(daily_ic.head(10))
+
+
+        # 4. 汇总统计指标
+        ic_mean = daily_ic["rank_ic"].mean()
+        ic_std = daily_ic["rank_ic"].std()
+        icir = ic_mean / ic_std if ic_std > 0 else float("nan")
+        positive_ratio = (daily_ic["rank_ic"] > 0).mean()
+
+        print("\nRank IC 统计：")
+        print("有效交易日数量：", daily_ic["rank_ic"].count())
+        print("Mean IC：", ic_mean)
+        print("IC 标准差：", ic_std)
+        print("ICIR：", icir)
+        print("IC 正值比例：", positive_ratio)
+
+
+        # 5. 查看某一天的横截面数据
+        first_date = valid["date"].min()
+
+        print("\n第一天的横截面数据：")
+        print(
+            valid[valid["date"] == first_date][
+                ["code", "mom20", "future_return_5d"]
+            ].sort_values("mom20", ascending=False)
+        )
+
+
+    
+
 
     finally:
         # 即使下载过程中发生异常，也尝试退出
