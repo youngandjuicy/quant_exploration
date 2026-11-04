@@ -254,6 +254,54 @@ def main():
             df_factor.groupby("code")["mom20"].count()
         )
 
+        # 计算未来5日收益率
+
+        # 下一交易日开盘价
+        df_factor["open_next"] = (
+            df_factor.groupby("code")["open"]
+            .shift(-1)
+        )
+
+        # 未来第5个交易日收盘价
+        df_factor["close_future5"] = (
+            df_factor.groupby("code")["close"]
+            .shift(-5)
+        )
+
+        # 未来5日收益率
+        df_factor["future_return_5d"] = (
+            df_factor["close_future5"]
+            / df_factor["open_next"] - 1
+        )
+
+        # 查看因子与未来收益
+        print("\n因子与未来收益：")
+        print(
+            df_factor[
+                [
+                    "date",
+                    "code",
+                    "mom20",
+                    "open_next",
+                    "close_future5",
+                    "future_return_5d",
+                ]
+            ].groupby("code").head(25)
+        )
+
+        # 检查有效数据数量
+        print("\n各股票有效未来收益数量：")
+        print(
+            df_factor.groupby("code")["future_return_5d"].count()
+        )
+
+        # 同时拥有因子和未来收益的样本数量
+        valid_samples = df_factor.dropna(
+            subset=["mom20", "future_return_5d"]
+        )
+
+        print("\n有效研究样本数量：")
+        print(valid_samples.groupby("code").size())
 
 
     finally:
