@@ -22,6 +22,10 @@ FIELDS = (
     "volume,amount,adjustflag,turn,tradestatus,pctChg,isST"
 )
 
+# 是否强制重新下载
+# True：忽略本地缓存，重新下载
+# False：优先读取本地缓存
+FORCE_DOWNLOAD = False
 
 # 2. 下载一只股票的日线数据
 def download_daily(code, start_date, end_date):
@@ -54,39 +58,79 @@ def download_daily(code, start_date, end_date):
     return df
 
 
-# 3. 主程序
+# 3. 主程序  
 def main():
-    login_result = bs.login()
+    # 原始数据保存路径
+    raw_path = (
+        Path(__file__).resolve().parents[1]
+        / "data"
+        / "raw"
+        / "sample_daily.csv"
+    )
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if login_result.error_code != "0":
-        raise RuntimeError(
-            f"登录失败：{login_result.error_msg}"
-        )
+    # 记录是否成功登录 BaoStock
+    logged_in = False
 
     try:
-        all_frames = []
+        # 1. 优先检查本地缓存
+        if raw_path.exists() and not FORCE_DOWNLOAD:
+            print(f"\n发现本地缓存，直接读取：{raw_path}")
+            df = pd.read_csv(raw_path)
 
-        for code in STOCK_CODES:
-            print(f"正在下载：{code}")
+        else:
+            print("\n开始从 BaoStock 下载数据...")
 
-            stock_df = download_daily(
-                code, START_DATE, END_DATE
+            # 2. 登录 BaoStock
+            login_result = bs.login()
+
+            if login_result.error_code != "0":
+                raise RuntimeError(
+                    f"登录失败：{login_result.error_msg}"
+                )
+
+            logged_in = True
+
+            # 3. 下载五只股票
+            all_frames = []
+
+            for code in STOCK_CODES:
+                print(f"正在下载：{code}")
+
+                stock_df = download_daily(
+                    code, START_DATE, END_DATE
+                )
+
+                print(f"下载记录数：{len(stock_df)}")
+                all_frames.append(stock_df)
+
+            # 4. 合并数据
+            df = pd.concat(
+                all_frames,
+                ignore_index=True,
             )
 
-            print(f"下载记录数：{len(stock_df)}")
+            # 5. 排序
+            df = df.sort_values(
+                ["date", "code"]
+            ).reset_index(drop=True)
 
-            all_frames.append(stock_df)
+            # 6. 保存本地缓存
+            df.to_csv(
+                raw_path,
+                index=False,
+                encoding="utf-8-sig",
+            )
 
-        # 将 5 只股票的数据纵向合并
-        df = pd.concat(
-            all_frames,
-            ignore_index=True,
-        )
+            print(f"\n原始数据已保存：{raw_path}")
 
-        # 按日期、股票代码排序
+        # 统一排序，保证读取缓存和下载得到的数据顺序一致
         df = df.sort_values(
             ["date", "code"]
         ).reset_index(drop=True)
+
+        # 从这里开始，继续保留你原来的数据检查代码
+
 
         # 检查结果
         print("\n前 10 行数据：")
