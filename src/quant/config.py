@@ -44,3 +44,22 @@ DAILY_FREQUENCY = "d"
 
 # 1：后复权
 DAILY_ADJUST_FLAG = "1"
+
+
+# ==================================================
+# 4. 正式研究配置
+# ==================================================
+
+RESEARCH_START_DATE = "2024-01-01"
+RESEARCH_END_DATE = "2024-06-30"
+
+MOMENTUM_WINDOW = 20
+FORWARD_HORIZON = 5
+
+# 沪深 A 股代码前缀
+A_SHARE_CODE_PREFIXES = (
+    "sh.6",
+    "sz.0",
+    "sz.3",
+)
+
