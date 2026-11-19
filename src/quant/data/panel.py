@@ -61,16 +61,20 @@ def clean_daily_panel(raw_df):
 
     主要操作：
     1. 检查字段
-    2. 转换日期类型
-    3. 转换数值类型
-    4. 按日期、股票代码排序
+    2. 保留标准字段
+    3. 转换日期类型
+    4. 转换数值类型
+    5. 按日期、股票代码排序
 
     不进行股票筛选，不填充缺失值。
     """
 
     check_schema(raw_df)
 
-    df = raw_df.copy()
+    # 只保留标准字段，确保不同批次具有一致的结构
+    required_columns = config.DAILY_FIELDS.split(",")
+
+    df = raw_df[required_columns].copy()
 
     # 日期转换
     raw_date = df["date"].astype("string").str.strip()

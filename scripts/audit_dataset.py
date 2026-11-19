@@ -26,7 +26,7 @@ DATASET_PATH = (
 
 UNIVERSE_PATH = (
     config.DATA_INTERIM_DIR
-    / "historical_universe_codes.csv"
+    / "universe_manifest.csv"
 )
 
 CALENDAR_PATH = (

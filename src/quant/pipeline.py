@@ -102,7 +102,6 @@ def _load_raw_data(
     ensure_login,
     force_refresh=False,
     cache_dir=None,
-    verbose=True,
 ):
     """
     加载一批股票的原始行情。
@@ -143,9 +142,6 @@ def _load_raw_data(
 
         if cached_df is not None and not cached_df.empty:
 
-            if verbose:
-                print(f"缓存命中：{code}")
-
             _validate_single_stock_data(
                 cached_df,
                 code,
@@ -155,9 +151,6 @@ def _load_raw_data(
             cache_hits += 1
 
         else:
-
-            if verbose:
-                print(f"需要下载：{code}")
 
             # --------------------------------------
             # 2. 下载数据
@@ -207,57 +200,7 @@ def _load_raw_data(
 
 
 # ==================================================
-# 3. 原有小规模 Pipeline
-# ==================================================
-
-def build_daily_panel(
-    codes,
-    start_date,
-    end_date,
-    force_refresh=False,
-    cache_dir=None,
-):
-    """
-    获取指定股票的日线数据，并构建标准行情面板。
-
-    保留原有接口，供小规模研究和测试使用。
-    """
-
-    codes = _validate_codes(codes)
-
-    ensure_login, logout_if_needed = (
-        _create_login_manager()
-    )
-
-    try:
-
-        raw_panel, _ = _load_raw_data(
-            codes=codes,
-            start_date=start_date,
-            end_date=end_date,
-            ensure_login=ensure_login,
-            force_refresh=force_refresh,
-            cache_dir=cache_dir,
-        )
-
-    finally:
-        logout_if_needed()
-
-    # 清洗
-    daily_panel = panel.clean_daily_panel(
-        raw_panel
-    )
-
-    # 数据质量检查
-    report = panel.validate_daily_panel(
-        daily_panel
-    )
-
-    return daily_panel, report
-
-
-# ==================================================
-# 4. 全市场批量 Pipeline
+# 3. 全市场批量 Pipeline
 # ==================================================
 
 def build_daily_panel_to_parquet(
@@ -396,7 +339,6 @@ def build_daily_panel_to_parquet(
                 ensure_login=ensure_login,
                 force_refresh=force_refresh,
                 cache_dir=cache_dir,
-                verbose=False,
             )
 
             total_cache_hits += (

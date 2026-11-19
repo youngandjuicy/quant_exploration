@@ -84,6 +84,23 @@ class TestDailyPanel(unittest.TestCase):
         with self.assertRaises(ValueError):
             clean_daily_panel(invalid_df)
 
+    def test_extra_columns_are_removed(self):
+
+        raw_df = self.raw_df.copy()
+        raw_df["extra_column"] = "unused"
+
+        df = clean_daily_panel(raw_df)
+
+        self.assertNotIn(
+            "extra_column",
+            df.columns,
+        )
+
+        self.assertEqual(
+            df.columns.tolist(),
+            self.raw_df.columns.tolist(),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

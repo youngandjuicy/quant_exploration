@@ -99,16 +99,3 @@ def query_trade_dates(start_date, end_date):
         "query_trade_dates",
     )
 
-
-# ==================================================
-# 6. 指定日期全部证券列表
-# ==================================================
-
-def query_all_stock(day):
-
-    rs = bs.query_all_stock(day=day)
-
-    return _result_to_dataframe(
-        rs,
-        "query_all_stock",
-    )

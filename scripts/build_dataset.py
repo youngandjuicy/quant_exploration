@@ -38,7 +38,7 @@ TRADE_CALENDAR_PATH = (
 
 UNIVERSE_OUTPUT_PATH = (
     config.DATA_INTERIM_DIR
-    / "historical_universe_codes.csv"
+    / "universe_manifest.csv"
 )
 
 DATASET_OUTPUT_PATH = (
@@ -63,7 +63,7 @@ def load_metadata():
         if not path.exists():
             raise FileNotFoundError(
                 f"缺少必要的历史元数据：{path}\n"
-                "请先运行 scripts/audit_universe.py"
+                "请先运行 scripts/download_metadata.py"
             )
 
     raw_stock_basic = pd.read_csv(
@@ -265,8 +265,6 @@ def main():
         research_end_date=config.RESEARCH_END_DATE,
     )
 
-    save_universe(candidates)
-
     # ------------------------------------------
     # 4. 输出预检查报告
     # ------------------------------------------
@@ -368,6 +366,9 @@ def main():
         codes=codes,
         data_range=data_range,
     )
+
+    # 正式数据集构建成功后，保存对应股票池清单
+    save_universe(candidates)
 
     print("\n========== 最终构建报告 ==========")
 

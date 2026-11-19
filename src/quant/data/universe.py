@@ -2,7 +2,6 @@
 import pandas as pd
 
 from .. import config
-from .calendar import get_trading_dates
 
 
 # ==================================================
@@ -135,93 +134,3 @@ def filter_a_share_stocks(stock_basic):
     return stocks.sort_values(
         "code"
     ).reset_index(drop=True)
-
-
-# ==================================================
-# 3. 构建历史股票池
-# ==================================================
-
-def build_historical_universe(
-    stock_basic,
-    calendar_df,
-):
-    """
-    根据上市日期、退市日期和交易日历，
-    构建 date-code 形式的历史股票池。
-
-    注意：
-    不根据当前 status 筛选股票。
-    不在这里过滤 ST 和停牌股票。
-    """
-
-    stocks = filter_a_share_stocks(stock_basic)
-
-    trading_dates = get_trading_dates(calendar_df)
-
-    if len(trading_dates) == 0:
-        raise ValueError("交易日历中没有交易日")
-
-    start_date = trading_dates.min()
-    end_date = trading_dates.max()
-
-    # 先排除完全不在研究区间内的股票
-    candidates = stocks[
-        (stocks["ipo_date"] <= end_date)
-        & (
-            stocks["out_date"].isna()
-            | (stocks["out_date"] >= start_date)
-        )
-    ].copy()
-
-    # 股票与交易日期做笛卡尔积
-    date_df = pd.DataFrame({
-        "date": trading_dates
-    })
-
-    candidates["_key"] = 1
-    date_df["_key"] = 1
-
-    universe = candidates.merge(
-        date_df,
-        on="_key",
-        how="inner",
-    )
-
-    universe = universe.drop(columns="_key")
-
-    # 保留股票实际上市期间的记录
-    mask = (
-        (universe["date"] >= universe["ipo_date"])
-        & (
-            universe["out_date"].isna()
-            | (universe["date"] <= universe["out_date"])
-        )
-    )
-
-    universe = universe.loc[mask].copy()
-
-    universe = universe[
-        [
-            "date",
-            "code",
-            "code_name",
-            "ipo_date",
-            "out_date",
-        ]
-    ]
-
-    return (
-        universe.sort_values(["date", "code"])
-        .reset_index(drop=True)
-    )
-
-
-# ==================================================
-# 4. 获取研究区间涉及的全部股票代码
-# ==================================================
-
-def get_universe_codes(universe_df):
-
-    return sorted(
-        universe_df["code"].unique().tolist()
-    )
