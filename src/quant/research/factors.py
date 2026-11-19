@@ -2,18 +2,16 @@
 import numpy as np
 import pandas as pd
 
-from .. import config
-
 
 def compute_momentum(
     daily_panel,
     trading_dates,
-    window=None,
+    window,
 ):
     """
     计算横截面股票动量因子。
 
-    mom20 = close_t / close_t-window - 1
+    momentum = close_t / close_t-window - 1
 
     时间窗口以市场交易日为准，而不是股票自身的
     有效行情记录数量。
@@ -29,7 +27,7 @@ def compute_momentum(
     Returns
     -------
     pd.DataFrame
-        date, code, mom20
+        date, code, factor
 
         保留所有输入记录，无效因子记为 NaN。
     """
@@ -37,9 +35,6 @@ def compute_momentum(
     # ------------------------------------------
     # 1. 参数与字段检查
     # ------------------------------------------
-
-    if window is None:
-        window = config.MOMENTUM_WINDOW
 
     if (
         isinstance(window, bool)
@@ -74,6 +69,9 @@ def compute_momentum(
 
     if calendar.hasnans:
         raise ValueError("交易日历存在无效日期")
+
+    if len(calendar) == 0:
+        raise ValueError("交易日历为空")
 
     if (
         not calendar.is_monotonic_increasing
@@ -253,5 +251,5 @@ def compute_momentum(
     return pd.DataFrame({
         "date": dates.reset_index(drop=True),
         "code": codes.reset_index(drop=True),
-        "mom20": result,
+        "factor": result,
     })

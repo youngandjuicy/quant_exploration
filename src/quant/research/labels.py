@@ -2,18 +2,16 @@
 import numpy as np
 import pandas as pd
 
-from .. import config
-
 
 def compute_forward_return(
     daily_panel,
     trading_dates,
-    horizon=None,
+    horizon,
 ):
     """
     计算未来固定市场交易日的收益标签。
 
-    future_return_5d = close_{t+5} / open_{t+1} - 1
+    target = close_{t+horizon} / open_{t+1} - 1
 
     规则：
     1. 使用市场交易日作为时间尺度。
@@ -27,7 +25,7 @@ def compute_forward_return(
     Returns
     -------
     pd.DataFrame
-        date, code, future_return_5d
+        date, code, target
 
         保留所有输入记录，无效标签记为 NaN。
     """
@@ -35,9 +33,6 @@ def compute_forward_return(
     # ------------------------------------------
     # 1. 参数与字段检查
     # ------------------------------------------
-
-    if horizon is None:
-        horizon = config.FORWARD_HORIZON
 
     if (
         isinstance(horizon, bool)
@@ -72,6 +67,9 @@ def compute_forward_return(
 
     if calendar.hasnans:
         raise ValueError("交易日历存在无效日期")
+
+    if len(calendar) == 0:
+        raise ValueError("交易日历为空")
 
     if (
         not calendar.is_monotonic_increasing
@@ -263,5 +261,5 @@ def compute_forward_return(
     return pd.DataFrame({
         "date": dates.reset_index(drop=True),
         "code": codes.reset_index(drop=True),
-        "future_return_5d": result,
+        "target": result,
     })

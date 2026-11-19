@@ -1,6 +1,4 @@
 
-from pathlib import Path
-
 import pandas as pd
 
 from quant import config
@@ -18,8 +16,40 @@ from quant.research.evaluation import (
 
 
 # ==================================================
-# 1. 路径与研究参数
+# 1. 实验配置
 # ==================================================
+
+EXPERIMENT_NAME = "momentum_v1"
+
+FACTOR_SPEC = {
+    "name": "momentum",
+    "function": compute_momentum,
+    "params": {
+        "window": config.MOMENTUM_WINDOW,
+    },
+    "lookback": config.MOMENTUM_WINDOW,
+    "required_columns": [
+        "close",
+        "tradestatus",
+        "isST",
+    ],
+}
+
+TARGET_SPEC = {
+    "name": "forward_return",
+    "function": compute_forward_return,
+    "params": {
+        "horizon": config.FORWARD_HORIZON,
+    },
+    "horizon": config.FORWARD_HORIZON,
+    "required_columns": [
+        "open",
+        "close",
+        "tradestatus",
+    ],
+}
+
+MIN_STOCKS = 30
 
 PANEL_PATH = (
     config.DATA_PROCESSED_DIR
@@ -36,10 +66,8 @@ CALENDAR_PATH = (
 RESULTS_DIR = (
     config.PROJECT_ROOT
     / "results"
-    / "momentum_v1"
+    / EXPERIMENT_NAME
 )
-
-MIN_STOCKS = 30
 
 
 # ==================================================
@@ -107,7 +135,6 @@ def get_split_bounds(
                 f"研究区间交易日不足：{start_date} ~ {end_date}"
             )
 
-        # 最后 horizon 个信号日不参与评价
         signal_end = split_dates[-horizon - 1]
 
     return split_dates[0], signal_end
@@ -117,7 +144,17 @@ def get_split_bounds(
 # 3. 读取研究数据
 # ==================================================
 
-def load_research_data():
+def load_research_data(
+    lookback,
+    forward_horizon,
+    required_columns,
+):
+    """
+    根据实验需求读取行情数据。
+
+    自动计算历史回看和未来收益所需的数据范围，
+    只读取因子和目标函数需要的行情字段。
+    """
 
     if not PANEL_PATH.exists():
         raise FileNotFoundError(
@@ -151,25 +188,23 @@ def load_research_data():
         calendar_df,
         config.RESEARCH_START_DATE,
         config.RESEARCH_END_DATE,
-        lookback=config.MOMENTUM_WINDOW,
-        forward_horizon=config.FORWARD_HORIZON,
+        lookback=lookback,
+        forward_horizon=forward_horizon,
     )
 
-    print("读取 Parquet 行情数据...")
-
-    # 只读取研究所需的六个字段
-    required_columns = [
+    # 自动合并因子与目标所需字段
+    columns = list(dict.fromkeys([
         "date",
         "code",
-        "open",
-        "close",
-        "tradestatus",
-        "isST",
-    ]
+        *required_columns,
+    ]))
+
+    print("读取 Parquet 行情数据...")
+    print("读取字段：", columns)
 
     daily_panel = pd.read_parquet(
         PANEL_PATH,
-        columns=required_columns,
+        columns=columns,
     )
 
     if daily_panel.empty:
@@ -209,8 +244,12 @@ def load_research_data():
     print("\n数据读取完成")
     print("行情记录数：", len(daily_panel))
     print("股票数量：", daily_panel["code"].nunique())
-    print("实际日期范围：", actual_start.date(), "~", actual_end.date())
-
+    print(
+        "实际日期范围：",
+        actual_start.date(),
+        "~",
+        actual_end.date(),
+    )
     print(
         "研究所需日期范围：",
         required_start.date(),
@@ -222,60 +261,112 @@ def load_research_data():
 
 
 # ==================================================
-# 4. 因子与收益标签构造
+# 4. 因子与目标构造
 # ==================================================
 
 def build_research_variables(
     daily_panel,
     trading_dates,
+    factor_spec,
+    target_spec,
 ):
+    """
+    根据实验配置构造因子和预测目标。
+
+    两个函数均遵循统一接口：
+
+    Factor:
+        date, code, factor
+
+    Target:
+        date, code, target
+    """
+
+    # ------------------------------------------
+    # 1. 构造因子
+    # ------------------------------------------
 
     print("\n========== 因子构造 ==========")
+    print("因子名称：", factor_spec["name"])
 
-    factor_df = compute_momentum(
+    factor_df = factor_spec["function"](
         daily_panel,
         trading_dates,
-        window=config.MOMENTUM_WINDOW,
+        **factor_spec["params"],
     )
 
-    print("20日动量计算完成")
+    if len(factor_df) != len(daily_panel):
+        raise ValueError(
+            "因子函数输出行数与行情数据不一致"
+        )
+
+    if not {"date", "code", "factor"}.issubset(
+        factor_df.columns
+    ):
+        raise ValueError(
+            "因子函数输出不符合统一接口"
+        )
+
+    print("因子构造完成")
     print(
         "有效因子数量：",
-        factor_df["mom20"].notna().sum(),
+        factor_df["factor"].notna().sum(),
     )
 
-    print("\n========== 收益标签构造 ==========")
+    # ------------------------------------------
+    # 2. 构造预测目标
+    # ------------------------------------------
 
-    label_df = compute_forward_return(
+    print("\n========== 预测目标构造 ==========")
+    print("目标名称：", target_spec["name"])
+
+    target_df = target_spec["function"](
         daily_panel,
         trading_dates,
-        horizon=config.FORWARD_HORIZON,
+        **target_spec["params"],
     )
 
-    print("未来收益计算完成")
+    if len(target_df) != len(daily_panel):
+        raise ValueError(
+            "目标函数输出行数与行情数据不一致"
+        )
+
+    if not {"date", "code", "target"}.issubset(
+        target_df.columns
+    ):
+        raise ValueError(
+            "目标函数输出不符合统一接口"
+        )
+
+    print("预测目标构造完成")
     print(
-        "有效收益标签数量：",
-        label_df["future_return_5d"].notna().sum(),
+        "有效目标数量：",
+        target_df["target"].notna().sum(),
     )
 
-    return factor_df, label_df
+    return factor_df, target_df
 
 
 # ==================================================
-# 5. 每日 Rank IC 计算
+# 5. 因子评价
 # ==================================================
 
 def evaluate_factor(
     factor_df,
-    label_df,
+    target_df,
     trading_dates,
+    horizon,
 ):
+    """
+    计算每日 Rank IC，并按照 Discovery、
+    Validation 和 Final Test 分别汇总。
+    """
 
     print("\n========== 每日 Rank IC ==========")
 
     daily_ic = compute_daily_rank_ic(
         factor_df,
-        label_df,
+        target_df,
         min_stocks=MIN_STOCKS,
     )
 
@@ -286,12 +377,8 @@ def evaluate_factor(
         daily_ic["rank_ic"].notna().sum(),
     )
 
-    # 不再需要完整因子和标签数据
-    del factor_df
-    del label_df
-
     # ------------------------------------------
-    # 5.1 按研究区间分别评价
+    # 1. 按研究区间分别评价
     # ------------------------------------------
 
     daily_results = []
@@ -308,7 +395,7 @@ def evaluate_factor(
             trading_dates,
             start_date,
             end_date,
-            config.FORWARD_HORIZON,
+            horizon,
             allow_future_buffer,
         )
 
@@ -398,7 +485,6 @@ def save_results(
     )
 
     print("\n========== 研究结果已保存 ==========")
-
     print("每日 Rank IC：", daily_path)
     print("汇总报告：", summary_path)
 
@@ -410,24 +496,40 @@ def save_results(
 def main():
 
     print("======================================")
-    print("       Quant Research - Momentum V1")
+    print("       Quant Research - Experiment")
     print("======================================")
 
+    print("实验名称：", EXPERIMENT_NAME)
     print("研究区间：",
           config.RESEARCH_START_DATE,
           "~",
           config.RESEARCH_END_DATE)
 
-    print("动量窗口：", config.MOMENTUM_WINDOW)
-    print("未来收益窗口：", config.FORWARD_HORIZON)
+    print("因子：", FACTOR_SPEC["name"])
+    print("因子参数：", FACTOR_SPEC["params"])
+    print("历史回看：", FACTOR_SPEC["lookback"])
 
-    # 1. 读取数据
-    daily_panel, trading_dates = load_research_data()
+    print("预测目标：", TARGET_SPEC["name"])
+    print("目标参数：", TARGET_SPEC["params"])
 
-    # 2. 构造因子和收益标签
-    factor_df, label_df = build_research_variables(
+    # 1. 读取研究数据
+    required_columns = (
+        FACTOR_SPEC["required_columns"]
+        + TARGET_SPEC["required_columns"]
+    )
+
+    daily_panel, trading_dates = load_research_data(
+        lookback=FACTOR_SPEC["lookback"],
+        forward_horizon=TARGET_SPEC["horizon"],
+        required_columns=required_columns,
+    )
+
+    # 2. 构造因子和预测目标
+    factor_df, target_df = build_research_variables(
         daily_panel,
         trading_dates,
+        FACTOR_SPEC,
+        TARGET_SPEC,
     )
 
     # 原始行情不再需要
@@ -436,9 +538,14 @@ def main():
     # 3. 计算并评价每日 Rank IC
     daily_ic, summary = evaluate_factor(
         factor_df,
-        label_df,
+        target_df,
         trading_dates,
+        horizon=TARGET_SPEC["horizon"],
     )
+
+    # 释放大型中间数据
+    del factor_df
+    del target_df
 
     # 4. 保存结果
     save_results(

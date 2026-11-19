@@ -11,15 +11,15 @@ def compute_daily_rank_ic(
     """
     计算每日横截面 Rank IC。
 
-    Rank IC = Spearman(mom20, future_return_5d)
+    Rank IC = Spearman(factor, target)
 
     Parameters
     ----------
     factor_df : pd.DataFrame
-        date, code, mom20
+        date, code, factor
 
     label_df : pd.DataFrame
-        date, code, future_return_5d
+        date, code, target
 
     min_stocks : int
         计算 Rank IC 所要求的最小有效股票数量。
@@ -41,12 +41,8 @@ def compute_daily_rank_ic(
     ):
         raise ValueError("min_stocks 必须是大于等于2的整数")
 
-    required_factor = {"date", "code", "mom20"}
-    required_label = {
-        "date",
-        "code",
-        "future_return_5d",
-    }
+    required_factor = {"date", "code", "factor"}
+    required_label = {"date", "code", "target"}
 
     if not required_factor.issubset(factor_df.columns):
         raise ValueError("因子数据缺少必要字段")
@@ -54,11 +50,14 @@ def compute_daily_rank_ic(
     if not required_label.issubset(label_df.columns):
         raise ValueError("收益标签缺少必要字段")
 
+    if factor_df.empty or label_df.empty:
+        raise ValueError("因子数据和收益标签不能为空")
+
     if len(factor_df) != len(label_df):
         raise ValueError("因子数据与收益标签行数不一致")
 
     # 两个计算函数都保留原始行顺序，
-    # 因此可以直接对齐，避免对870万行数据进行大型merge。
+    # 因此可以直接对齐，避免大型 merge。
     if not factor_df["date"].reset_index(drop=True).equals(
         label_df["date"].reset_index(drop=True)
     ):
@@ -75,15 +74,16 @@ def compute_daily_rank_ic(
 
     research_df = pd.DataFrame({
         "date": factor_df["date"].to_numpy(),
-        "mom20": pd.to_numeric(
-            factor_df["mom20"],
-            errors="coerce",
-        ).to_numpy(dtype=np.float64),
 
-        "future_return_5d": pd.to_numeric(
-            label_df["future_return_5d"],
+        "factor": pd.to_numeric(
+            factor_df["factor"],
             errors="coerce",
-        ).to_numpy(dtype=np.float64),
+        ).to_numpy(dtype=np.float64, na_value=np.nan),
+
+        "target": pd.to_numeric(
+            label_df["target"],
+            errors="coerce",
+        ).to_numpy(dtype=np.float64, na_value=np.nan),
     })
 
     # ------------------------------------------
@@ -97,15 +97,15 @@ def compute_daily_rank_ic(
         sort=True,
     ):
 
-        # 只保留同时具有因子和未来收益的股票
+        # 只保留同时具有有效因子和标签的股票
         valid = (
-            np.isfinite(group["mom20"])
-            & np.isfinite(group["future_return_5d"])
+            np.isfinite(group["factor"])
+            & np.isfinite(group["target"])
         )
 
         sample = group.loc[
             valid,
-            ["mom20", "future_return_5d"],
+            ["factor", "target"],
         ]
 
         n_stocks = len(sample)
@@ -115,16 +115,16 @@ def compute_daily_rank_ic(
 
         else:
             # Spearman = Pearson correlation of ranks
-            factor_rank = sample["mom20"].rank(
+            factor_rank = sample["factor"].rank(
                 method="average"
             )
 
-            return_rank = sample["future_return_5d"].rank(
+            target_rank = sample["target"].rank(
                 method="average"
             )
 
             rank_ic = factor_rank.corr(
-                return_rank,
+                target_rank,
                 method="pearson",
             )
 
@@ -134,7 +134,10 @@ def compute_daily_rank_ic(
             "n_stocks": n_stocks,
         })
 
-    return pd.DataFrame(records)
+    return pd.DataFrame(
+        records,
+        columns=["date", "rank_ic", "n_stocks"],
+    )
 
 
 def summarize_rank_ic(daily_ic):
@@ -154,9 +157,11 @@ def summarize_rank_ic(daily_ic):
         errors="coerce",
     )
 
-    ic = ic[np.isfinite(ic)]
+    valid_mask = np.isfinite(ic.to_numpy(dtype=np.float64))
 
-    if len(ic) == 0:
+    valid_ic = ic.loc[valid_mask]
+
+    if len(valid_ic) == 0:
         return {
             "n_valid_days": 0,
             "mean_ic": np.nan,
@@ -166,8 +171,8 @@ def summarize_rank_ic(daily_ic):
             "mean_n_stocks": np.nan,
         }
 
-    mean_ic = ic.mean()
-    ic_std = ic.std(ddof=1)
+    mean_ic = valid_ic.mean()
+    ic_std = valid_ic.std(ddof=1)
 
     icir = (
         mean_ic / ic_std
@@ -175,15 +180,16 @@ def summarize_rank_ic(daily_ic):
         else np.nan
     )
 
-    valid_days = daily_ic.loc[
-        ic.index
-    ]
+    valid_n_stocks = pd.to_numeric(
+        daily_ic.loc[valid_mask, "n_stocks"],
+        errors="coerce",
+    )
 
     return {
-        "n_valid_days": len(ic),
+        "n_valid_days": len(valid_ic),
         "mean_ic": mean_ic,
         "ic_std": ic_std,
         "icir": icir,
-        "positive_ratio": (ic > 0).mean(),
-        "mean_n_stocks": valid_days["n_stocks"].mean(),
+        "positive_ratio": (valid_ic > 0).mean(),
+        "mean_n_stocks": valid_n_stocks.mean(),
     }
