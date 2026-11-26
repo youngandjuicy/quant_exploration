@@ -12,7 +12,14 @@ from quant.research.labels import compute_forward_return
 from quant.research.evaluation import (
     compute_daily_rank_ic,
     summarize_rank_ic,
+    compute_daily_group_returns,
+    summarize_group_returns,
+    compute_group_monotonicity,
+    compute_long_short_returns,
+    summarize_long_short_returns,
 )
+
+from quant.research.grouping import assign_quantile_groups
 
 
 # ==================================================
@@ -50,6 +57,7 @@ TARGET_SPEC = {
 }
 
 MIN_STOCKS = 30
+N_GROUPS = 10
 
 PANEL_PATH = (
     config.DATA_PROCESSED_DIR
@@ -351,6 +359,7 @@ def build_research_variables(
 # 5. 因子评价
 # ==================================================
 
+
 def evaluate_factor(
     factor_df,
     target_df,
@@ -358,9 +367,19 @@ def evaluate_factor(
     horizon,
 ):
     """
-    计算每日 Rank IC，并按照 Discovery、
-    Validation 和 Final Test 分别汇总。
+    综合评价因子：
+    1. Rank IC
+    2. 分组收益
+    3. 分组收益单调性
+    4. 理论多空收益
+
+    所有评价统一使用 Discovery / Validation /
+    Final Test 的信号日期边界。
     """
+
+    # ------------------------------------------
+    # 1. Rank IC
+    # ------------------------------------------
 
     print("\n========== 每日 Rank IC ==========")
 
@@ -370,19 +389,53 @@ def evaluate_factor(
         min_stocks=MIN_STOCKS,
     )
 
-    print("每日 IC 计算完成")
-    print("总交易日数：", len(daily_ic))
-    print(
-        "有效 IC 交易日数：",
-        daily_ic["rank_ic"].notna().sum(),
+    print("有效 IC 交易日数：",
+          daily_ic["rank_ic"].notna().sum())
+
+    # ------------------------------------------
+    # 2. 因子分组
+    # ------------------------------------------
+
+    print("\n========== 因子分组 ==========")
+
+    group_df = assign_quantile_groups(
+        factor_df,
+        n_groups=N_GROUPS,
+        min_stocks=MIN_STOCKS,
+    )
+
+    # 注意：分组只依据因子，不依据未来收益
+    daily_group_returns = compute_daily_group_returns(
+        group_df,
+        target_df,
+        n_groups=N_GROUPS,
+    )
+
+    del group_df
+
+    # ------------------------------------------
+    # 3. 理论多空收益
+    # ------------------------------------------
+
+    daily_long_short = compute_long_short_returns(
+        daily_group_returns,
+        low_group=1,
+        high_group=N_GROUPS,
     )
 
     # ------------------------------------------
-    # 1. 按研究区间分别评价
+    # 4. 按研究区间分别评价
     # ------------------------------------------
 
-    daily_results = []
-    summary_results = []
+    ic_daily_results = []
+    ic_summary_results = []
+
+    group_daily_results = []
+    group_summary_results = []
+    monotonicity_results = []
+
+    long_short_daily_results = []
+    long_short_summary_results = []
 
     for (
         split_name,
@@ -399,94 +452,227 @@ def evaluate_factor(
             allow_future_buffer,
         )
 
-        mask = (
-            (daily_ic["date"] >= signal_start)
-            & (daily_ic["date"] <= signal_end)
-        )
+        # 三类每日结果统一使用相同信号日期边界
+        split_ic = daily_ic.loc[
+            daily_ic["date"].between(
+                signal_start,
+                signal_end,
+            )
+        ].copy()
 
-        split_ic = daily_ic.loc[mask].copy()
+        split_groups = daily_group_returns.loc[
+            daily_group_returns["date"].between(
+                signal_start,
+                signal_end,
+            )
+        ].copy()
 
-        split_ic.insert(
-            0,
-            "split",
-            split_name,
-        )
+        split_long_short = daily_long_short.loc[
+            daily_long_short["date"].between(
+                signal_start,
+                signal_end,
+            )
+        ].copy()
 
-        # 计算区间汇总指标
-        summary = summarize_rank_ic(
+        # --------------------------------------
+        # 4.1 Rank IC 汇总
+        # --------------------------------------
+
+        ic_summary = summarize_rank_ic(
             split_ic
         )
 
-        summary.update({
+        ic_summary.update({
             "split": split_name,
             "signal_start": signal_start,
             "signal_end": signal_end,
             "n_signal_days": len(split_ic),
         })
 
-        daily_results.append(split_ic)
-        summary_results.append(summary)
+        split_ic.insert(0, "split", split_name)
+
+        ic_daily_results.append(split_ic)
+        ic_summary_results.append(ic_summary)
+
+        # --------------------------------------
+        # 4.2 分组收益汇总
+        # --------------------------------------
+
+        group_summary = summarize_group_returns(
+            split_groups
+        )
+
+        group_summary.insert(
+            0,
+            "split",
+            split_name,
+        )
+
+        group_summary["signal_start"] = signal_start
+        group_summary["signal_end"] = signal_end
+
+        # 分组收益单调性
+        monotonicity = compute_group_monotonicity(
+            group_summary
+        )
+
+        monotonicity.update({
+            "split": split_name,
+            "signal_start": signal_start,
+            "signal_end": signal_end,
+            "n_signal_days": len(split_ic),
+        })
+
+        split_groups.insert(
+            0,
+            "split",
+            split_name,
+        )
+
+        group_daily_results.append(split_groups)
+        group_summary_results.append(group_summary)
+        monotonicity_results.append(monotonicity)
+
+        # --------------------------------------
+        # 4.3 理论多空收益汇总
+        # --------------------------------------
+
+        long_short_summary = summarize_long_short_returns(
+            split_long_short
+        )
+
+        long_short_summary.update({
+            "split": split_name,
+            "signal_start": signal_start,
+            "signal_end": signal_end,
+            "n_signal_days": len(split_ic),
+        })
+
+        split_long_short.insert(
+            0,
+            "split",
+            split_name,
+        )
+
+        long_short_daily_results.append(split_long_short)
+        long_short_summary_results.append(
+            long_short_summary
+        )
+
+        # --------------------------------------
+        # 4.4 输出区间摘要
+        # --------------------------------------
 
         print(f"\n========== {split_name} ==========")
-        print("信号开始日期：", signal_start.date())
-        print("信号结束日期：", signal_end.date())
 
-        for key, value in summary.items():
-            print(f"{key}: {value}")
+        print(
+            "信号区间：",
+            signal_start.date(),
+            "~",
+            signal_end.date(),
+        )
 
-    daily_results = pd.concat(
-        daily_results,
-        ignore_index=True,
-    )
+        print("Mean IC：", ic_summary["mean_ic"])
+        print("ICIR：", ic_summary["icir"])
 
-    summary_results = pd.DataFrame(
-        summary_results
-    )
+        print(
+            "Group Return Spearman：",
+            monotonicity["group_return_spearman"],
+        )
 
-    return daily_results, summary_results
+        print(
+            "Mean Long-Short：",
+            long_short_summary["mean_long_short"],
+        )
+
+    # ------------------------------------------
+    # 5. 整理最终结果
+    # ------------------------------------------
+
+    return {
+        "daily_rank_ic": pd.concat(
+            ic_daily_results,
+            ignore_index=True,
+        ),
+
+        "rank_ic_summary": pd.DataFrame(
+            ic_summary_results
+        ),
+
+        "daily_group_returns": pd.concat(
+            group_daily_results,
+            ignore_index=True,
+        ),
+
+        "group_summary": pd.concat(
+            group_summary_results,
+            ignore_index=True,
+        ),
+
+        "group_monotonicity": pd.DataFrame(
+            monotonicity_results
+        ),
+
+        "daily_long_short_returns": pd.concat(
+            long_short_daily_results,
+            ignore_index=True,
+        ),
+
+        "long_short_summary": pd.DataFrame(
+            long_short_summary_results
+        ),
+    }
 
 
 # ==================================================
 # 6. 保存研究结果
 # ==================================================
 
-def save_results(
-    daily_ic,
-    summary,
-):
+
+def save_results(results):
 
     RESULTS_DIR.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    daily_path = (
-        RESULTS_DIR
-        / "daily_rank_ic.csv"
-    )
+    output_files = {
+        "daily_rank_ic.csv":
+            results["daily_rank_ic"],
 
-    summary_path = (
-        RESULTS_DIR
-        / "summary.csv"
-    )
+        "summary.csv":
+            results["rank_ic_summary"],
 
-    daily_ic.to_csv(
-        daily_path,
-        index=False,
-        encoding="utf-8-sig",
-        date_format="%Y-%m-%d",
-    )
+        "daily_group_returns.csv":
+            results["daily_group_returns"],
 
-    summary.to_csv(
-        summary_path,
-        index=False,
-        encoding="utf-8-sig",
-        date_format="%Y-%m-%d",
-    )
+        "group_summary.csv":
+            results["group_summary"],
+
+        "group_monotonicity.csv":
+            results["group_monotonicity"],
+
+        "daily_long_short_returns.csv":
+            results["daily_long_short_returns"],
+
+        "long_short_summary.csv":
+            results["long_short_summary"],
+    }
 
     print("\n========== 研究结果已保存 ==========")
-    print("每日 Rank IC：", daily_path)
-    print("汇总报告：", summary_path)
+
+    for filename, df in output_files.items():
+
+        path = RESULTS_DIR / filename
+
+        df.to_csv(
+            path,
+            index=False,
+            encoding="utf-8-sig",
+            date_format="%Y-%m-%d",
+        )
+
+        print(filename, ":", path)
 
 
 # ==================================================
@@ -536,7 +722,7 @@ def main():
     del daily_panel
 
     # 3. 计算并评价每日 Rank IC
-    daily_ic, summary = evaluate_factor(
+    results = evaluate_factor(
         factor_df,
         target_df,
         trading_dates,
@@ -548,10 +734,7 @@ def main():
     del target_df
 
     # 4. 保存结果
-    save_results(
-        daily_ic,
-        summary,
-    )
+    save_results(results)
 
     print("\n========== Research Completed ==========")
 
